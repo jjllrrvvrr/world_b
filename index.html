@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Le Journal du Monde B</title>
     <style>
+        /* CSS IMMERSIF - MONDE B */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
@@ -21,7 +22,7 @@
         .container {
             max-width: 600px;
             width: 100%;
-            animation: fadeIn 0.8s ease-out;
+            animation: fadeIn 1s ease-out;
         }
         
         @keyframes fadeIn {
@@ -42,6 +43,7 @@
             text-transform: uppercase;
             letter-spacing: 4px;
             margin-bottom: 0.5rem;
+            font-weight: normal;
         }
         
         .masthead .sub {
@@ -49,6 +51,7 @@
             font-size: 0.75rem;
             opacity: 0.8;
             letter-spacing: 2px;
+            text-transform: uppercase;
         }
         
         .loading {
@@ -60,7 +63,7 @@
         }
         
         @keyframes pulse {
-            0%, 100% { opacity: 0.5; }
+            0%, 100% { opacity: 0.6; }
             50% { opacity: 1; }
         }
         
@@ -71,12 +74,7 @@
             border: 1px solid #c44;
             border-radius: 4px;
             margin-top: 2rem;
-        }
-        
-        .error small {
-            color: #888;
-            display: block;
-            margin-top: 0.5rem;
+            font-family: sans-serif;
         }
         
         .meta {
@@ -88,7 +86,7 @@
         }
         
         .headline {
-            font-size: clamp(1.3rem, 4vw, 1.8rem);
+            font-size: clamp(1.4rem, 4vw, 2rem);
             font-weight: bold;
             color: #fff;
             margin-bottom: 1.2rem;
@@ -96,8 +94,8 @@
         }
         
         .body {
-            font-size: 1.05rem;
-            line-height: 1.7;
+            font-size: 1.1rem;
+            line-height: 1.8;
             margin-bottom: 2rem;
             color: #ccc;
         }
@@ -107,19 +105,8 @@
             padding-left: 1.2rem;
             font-style: italic;
             color: #aaa;
-            margin-bottom: 2.5rem;
+            margin-bottom: 3rem;
             line-height: 1.5;
-        }
-        
-        .raw-fallback {
-            white-space: pre-wrap;
-            font-size: 1rem;
-            line-height: 1.6;
-            color: #ccc;
-            background: rgba(255,255,255,0.03);
-            padding: 1.5rem;
-            border-radius: 4px;
-            margin-bottom: 2rem;
         }
         
         .cta {
@@ -131,20 +118,16 @@
             border-top: 1px solid #222;
         }
         
-        .cta p {
-            margin-bottom: 0.8rem;
-        }
+        .cta p { margin-bottom: 0.8rem; }
         
         .cta a {
             color: #d4af37;
             text-decoration: none;
-            border-bottom: 1px solid transparent;
-            transition: border-color 0.2s;
+            transition: opacity 0.2s;
+            font-weight: bold;
         }
         
-        .cta a:hover {
-            border-bottom-color: #d4af37;
-        }
+        .cta a:hover { opacity: 0.7; }
     </style>
 </head>
 <body>
@@ -153,38 +136,28 @@
             <h1>Le Journal du Monde B</h1>
             <div class="sub">Édition Officielle — Directoire des Sens Interdits</div>
         </div>
-        <div class="loading" id="loader">Chargement des nouvelles du Monde B...</div>
+        <div class="loading" id="loader">Interrogation des archives du Monde B...</div>
     </div>
 
     <script>
-        // ═══════════════════════════════════════
-        // CONFIGURATION
-        // ═══════════════════════════════════════
         const CONFIG = {
-            handle: 'julienlrvr.com',      // ← Ton handle Bluesky
+            handle: 'julienlrvr.com', 
             bskyService: 'https://bsky.social/xrpc'
         };
 
-        // ═══════════════════════════════════════
-        // RÉCUPÉRATION DU DERNIER POST
-        // ═══════════════════════════════════════
         async function fetchLatestPost() {
             const container = document.getElementById('app');
             const loader = document.getElementById('loader');
             
             try {
-                // Étape 1 : Résoudre le handle en DID
-                const resolveRes = await fetch(
-                    `${CONFIG.bskyService}/com.atproto.resolveHandle?handle=${CONFIG.handle}`
-                );
-                if (!resolveRes.ok) throw new Error('Journal introuvable');
+                // 1. Résolution du handle en DID
+                const resolveRes = await fetch(`${CONFIG.bskyService}/com.atproto.resolveHandle?handle=${CONFIG.handle}`);
+                if (!resolveRes.ok) throw new Error('Handle introuvable');
                 const { did } = await resolveRes.json();
                 
-                // Étape 2 : Récupérer le dernier post
-                const feedRes = await fetch(
-                    `${CONFIG.bskyService}/app.bsky.feed.getAuthorFeed?actor=${did}&limit=1`
-                );
-                if (!feedRes.ok) throw new Error('Édition indisponible');
+                // 2. Récupération du dernier post
+                const feedRes = await fetch(`${CONFIG.bskyService}/app.bsky.feed.getAuthorFeed?actor=${did}&limit=1`);
+                if (!feedRes.ok) throw new Error('Flux indisponible');
                 const data = await feedRes.json();
                 
                 if (!data.feed || data.feed.length === 0) {
@@ -195,7 +168,6 @@
                 const text = post.record.text || '';
                 const indexedAt = post.record.createdAt || new Date().toISOString();
                 
-                // Parser et afficher
                 const parsed = parsePost(text);
                 const html = buildHTML(parsed, indexedAt);
                 
@@ -205,48 +177,43 @@
             } catch (err) {
                 loader.innerHTML = `
                     <div class="error">
-                        Le Monde B est momentanément inaccessible.
-                        <small>${err.message}</small>
+                        Le Monde B est momentanément inaccessible.<br>
+                        <small style="font-size:0.7rem">${err.message}</small>
                     </div>
                 `;
             }
         }
 
-        // ═══════════════════════════════════════
-        // PARSING DU POST
-        // Format attendu :
-        // 📰 MONDE B — Jour X
-        // Headline
-        // Body
-        // 💬 Quote
-        // ═══════════════════════════════════════
         function parsePost(text) {
-            const lines = text.split('\n').filter(l => l.trim() !== '');
+            // On sépare par les doubles sauts de ligne pour identifier les blocs
+            const blocks = text.split(/\n\s*\n/).map(b => b.trim());
             
-            // Si le format standard est respecté
-            if (lines.length >= 2 && lines[0].includes('📰')) {
+            // Format attendu :
+            // [0] 📰 MONDE B — Jour X
+            // [1] Headline
+            // [2] Body
+            // [3] 💬 Quote
+            
+            if (blocks.length >= 2 && blocks[0].includes('📰')) {
                 return {
-                    dayPart: lines[0].replace('📰 ', '').trim(),
-                    headline: lines[1] ? lines[1].trim() : '',
-                    body: lines[2] ? lines[2].trim() : '',
-                    quote: lines[3] ? lines[3].replace('💬', '').trim() : '',
+                    dayPart: blocks[0].replace('📰 ', '').trim(),
+                    headline: blocks[1] || '',
+                    body: blocks[2] || '',
+                    quote: blocks[3] ? blocks[3].replace('💬', '').trim() : '',
                     structured: true
                 };
             }
             
-            // Fallback : affichage brut mais propre
+            // Fallback si le format est différent
             return {
-                dayPart: 'Édition du Monde B',
-                headline: lines[0] || 'Nouvelles',
-                body: lines.slice(1).join('\n\n') || text,
+                dayPart: 'Édition Spéciale',
+                headline: blocks[0] || 'Nouvelles du Monde B',
+                body: blocks.slice(1).join('\n\n') || text,
                 quote: '',
                 structured: false
             };
         }
 
-        // ═══════════════════════════════════════
-        // CONSTRUCTION DU HTML
-        // ═══════════════════════════════════════
         function buildHTML(parsed, dateISO) {
             const date = new Date(dateISO);
             const dateStr = date.toLocaleDateString('fr-FR', {
@@ -257,23 +224,22 @@
             });
             
             let html = '';
-            
-            html += `<div class="meta">${escapeHtml(parsed.dayPart)} · Publié le ${dateStr} à ${timeStr}</div>`;
+            html += `<div class="meta">${escapeHtml(parsed.dayPart)} · ${dateStr} à ${timeStr}</div>`;
             
             if (parsed.structured) {
                 html += `<div class="headline">${escapeHtml(parsed.headline)}</div>`;
                 if (parsed.body) html += `<div class="body">${escapeHtml(parsed.body)}</div>`;
                 if (parsed.quote) html += `<div class="quote">"${escapeHtml(parsed.quote)}"</div>`;
             } else {
-                html += `<div class="raw-fallback">${escapeHtml(parsed.body)}</div>`;
+                html += `<div class="body" style="white-space:pre-wrap">${escapeHtml(parsed.body)}</div>`;
             }
             
             html += `
                 <div class="cta">
-                    <p>📱 Scannez le QR code pour générer la prochaine édition.</p>
+                    <p>📱 Scannez le QR code pour générer l'édition suivante.</p>
                     <p>
                         <a href="https://bsky.app/profile/${CONFIG.handle}" target="_blank" rel="noopener">
-                            Voir l'archive complète sur Bluesky →
+                            Accéder aux archives complètes sur Bluesky →
                         </a>
                     </p>
                 </div>
@@ -289,7 +255,6 @@
             return div.innerHTML;
         }
 
-        // Lancer
         fetchLatestPost();
     </script>
 </body>
