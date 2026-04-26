@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Le Journal du Monde B</title>
+    <title>The World B Journal</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -65,6 +65,10 @@
             border-radius: 4px;
             margin-top: 2rem;
         }
+        .error a {
+            color: #d4af37;
+            text-decoration: none;
+        }
         .meta {
             color: #888;
             font-size: 0.85rem;
@@ -109,69 +113,201 @@
             font-weight: bold;
         }
         .cta a:hover { opacity: 0.7; }
+        .bsky-link {
+            color: #d4af37;
+            text-decoration: none;
+        }
+        .bsky-link:hover {
+            text-decoration: underline;
+        }
+        .post-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            display: block;
+        }
     </style>
 </head>
 <body>
     <div class="container" id="app">
         <div class="masthead">
-            <h1>Le Journal du Monde B</h1>
-            <div class="sub">Édition Officielle — Directoire des Sens Interdits</div>
+            <h1>The World B Journal</h1>
+            <div class="sub">Official Edition — Directory of Forbidden Senses</div>
         </div>
-        <div class="loading" id="loader">Interrogation des archives du Monde B...</div>
+        <div class="loading" id="loader">Querying World B archives...</div>
     </div>
 
     <script>
         const CONFIG = {
-            handle: 'julienlrvr.com',
-            bskyService: 'https://bsky.social/xrpc',
-            webhookUrl: 'https://n8n.jlrvr.be/webhook/monde-b-scan' // TON WEBHOOK
+            did: 'did:plc:7hz2stajsnytqbcoz33bsz7f',
+            handle: 'world-b.bsky.social',
+            pdsUrl: 'https://bsky.social',
+            webhookUrl: 'https://n8n.jlrvr.be/webhook/monde-b-scan'
         };
 
-        // 1. DÉCLENCHER LA PROCHAINE ÉDITION (Invisible pour l'utilisateur)
+        // Rate limiting for webhook: max 1 trigger every 30 seconds
+        function shouldTriggerWebhook() {
+            const lastTrigger = localStorage.getItem('monde_b_last_webhook');
+            const now = Date.now();
+            const minInterval = 30000; // 30 seconds
+            
+            if (!lastTrigger) {
+                return true;
+            }
+            
+            return (now - parseInt(lastTrigger)) > minInterval;
+        }
+        
+        function markWebhookTriggered() {
+            localStorage.setItem('monde_b_last_webhook', Date.now().toString());
+        }
+
         async function triggerNextEdition() {
+            // Check if it's not just a page refresh
+            const isPageRefresh = performance.navigation?.type === 1 || 
+                                  document.readyState === 'complete';
+            
+            // If it's a quick refresh (less than 2 seconds), skip it
+            const pageLoadTime = performance.now();
+            if (pageLoadTime < 2000 && sessionStorage.getItem('monde_b_visited')) {
+                console.log("Page refresh detected, skipping webhook.");
+                return;
+            }
+            
+            sessionStorage.setItem('monde_b_visited', 'true');
+            
+            // Check rate limiting
+            if (!shouldTriggerWebhook()) {
+                console.log("Webhook rate limited, too soon since last trigger.");
+                return;
+            }
+            
             try {
-                // On utilise 'no-cors' car on ne s'intéresse pas à la réponse, 
-                // on veut juste "réveiller" n8n.
                 await fetch(CONFIG.webhookUrl, { mode: 'no-cors' });
+                markWebhookTriggered();
                 console.log("Next edition triggered.");
             } catch (e) {
                 console.log("Trigger failed, but that's okay.");
             }
         }
 
-        // 2. RÉCUPÉRER LE DERNIER POST EXISTANT
         async function fetchLatestPost() {
             const container = document.getElementById('app');
             const loader = document.getElementById('loader');
-            const proxy = 'https://corsproxy.io/?';
-            const apiBase = `${proxy}${encodeURIComponent(CONFIG.bskyService)}`;
             
             try {
-                const resolveRes = await fetch(`${apiBase}/com.atproto.resolveHandle?handle=${CONFIG.handle}`);
-                if (!resolveRes.ok) throw new Error('Handle introuvable');
-                const { did } = await resolveRes.json();
+                const url = `${CONFIG.pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${CONFIG.did}&collection=app.bsky.feed.post&limit=10`;
+                const response = await fetch(url);
                 
-                const feedRes = await fetch(`${apiBase}/app.bsky.feed.getAuthorFeed?actor=${did}&limit=1`);
-                if (!feedRes.ok) throw new Error('Flux indisponible');
-                const data = await feedRes.json();
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 
-                if (!data.feed || data.feed.length === 0) {
-                    throw new Error('Aucune édition publiée');
+                const data = await response.json();
+                
+                if (!data.records || data.records.length === 0) {
+                    throw new Error('No edition published');
                 }
-                
-                const post = data.feed[0].post;
-                const text = post.record.text || '';
-                const indexedAt = post.record.createdAt || new Date().toISOString();
-                
-                const parsed = parsePost(text);
-                const html = buildHTML(parsed, indexedAt);
+
+                // Filter to not take replies
+                const validRecords = data.records.filter(r => {
+                    const v = r.value;
+                    if (v.reply) return false;
+                    if (!v.text || v.text.trim() === '') return false;
+                    return true;
+                });
+
+                if (validRecords.length === 0) {
+                    throw new Error('No edition published');
+                }
+
+                const record = validRecords[0];
+                const post = parseRecord(record);
+                const html = buildHTML(post);
                 
                 loader.remove();
                 container.insertAdjacentHTML('beforeend', html);
                 
             } catch (err) {
-                loader.innerHTML = `<div class="error">Le Monde B est momentanément inaccessible.<br><small>${err.message}</small></div>`;
+                console.error('Error:', err);
+                loader.innerHTML = `
+                    <div class="error">
+                        World B is temporarily unavailable.<br>
+                        <small>${err.message}</small><br><br>
+                        <a href="https://bsky.app/profile/${CONFIG.handle}" target="_blank" rel="noopener">
+                            View directly on Bluesky →
+                        </a>
+                    </div>
+                `;
             }
+        }
+
+        function parseRecord(record) {
+            const uri = record.uri;
+            const rkey = uri.split('/').pop();
+            const v = record.value;
+
+            let imageHtml = '';
+            if (v.embed && v.embed.$type === 'app.bsky.embed.images' && v.embed.images && v.embed.images.length > 0) {
+                const img = v.embed.images[0];
+                const imgCid = img.image.ref && img.image.ref['$link'] ? img.image.ref['$link'] : '';
+                const imgAlt = img.alt || '';
+                if (imgCid) {
+                    const thumbUrl = `https://cdn.bsky.app/img/feed_thumbnail/plain/${CONFIG.did}/${imgCid}@jpeg`;
+                    imageHtml = `<img src="${thumbUrl}" alt="${escapeHtml(imgAlt)}" class="post-image" loading="lazy">`;
+                }
+            }
+
+            const facetsHtml = renderFacets(v);
+            const parsed = parsePost(v.text);
+
+            return {
+                ...parsed,
+                facetsHtml,
+                imageHtml,
+                date: v.createdAt,
+                url: `https://bsky.app/profile/${CONFIG.handle}/post/${rkey}`
+            };
+        }
+
+        function renderFacets(value) {
+            const text = value.text;
+            const facets = value.facets;
+            if (!facets || facets.length === 0) return escapeHtml(text);
+
+            const sorted = [...facets].sort((a, b) => a.index.byteStart - b.index.byteStart);
+            let result = '';
+            let lastEnd = 0;
+
+            for (const facet of sorted) {
+                if (facet.index.byteStart > lastEnd) {
+                    result += escapeHtml(text.substring(lastEnd, facet.index.byteStart));
+                }
+
+                const segment = text.substring(facet.index.byteStart, facet.index.byteEnd);
+                const feature = facet.features && facet.features[0];
+
+                if (feature) {
+                    if (feature.$type === 'app.bsky.richtext.facet#link') {
+                        result += `<a href="${escapeHtml(feature.uri)}" target="_blank" rel="noopener" class="bsky-link">${escapeHtml(segment)}</a>`;
+                    } else if (feature.$type === 'app.bsky.richtext.facet#mention') {
+                        result += `<a href="https://bsky.app/profile/${escapeHtml(feature.did)}" target="_blank" rel="noopener" class="bsky-link">@${escapeHtml(segment.replace('@', ''))}</a>`;
+                    } else if (feature.$type === 'app.bsky.richtext.facet#tag') {
+                        result += `<a href="https://bsky.app/search?q=%23${escapeHtml(feature.tag)}" target="_blank" rel="noopener" class="bsky-link">#${escapeHtml(feature.tag)}</a>`;
+                    } else {
+                        result += escapeHtml(segment);
+                    }
+                } else {
+                    result += escapeHtml(segment);
+                }
+
+                lastEnd = facet.index.byteEnd;
+            }
+
+            if (lastEnd < text.length) {
+                result += escapeHtml(text.substring(lastEnd));
+            }
+
+            return result;
         }
 
         function parsePost(text) {
@@ -186,42 +322,52 @@
                 };
             }
             return {
-                dayPart: 'Édition Spéciale',
-                headline: blocks[0] || 'Nouvelles du Monde B',
+                dayPart: 'Special Edition',
+                headline: blocks[0] || 'World B News',
                 body: blocks.slice(1).join('\n\n') || text,
                 quote: '',
                 structured: false
             };
         }
 
-        function buildHTML(parsed, dateISO) {
-            const date = new Date(dateISO);
-            const dateStr = date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-            const timeStr = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        function buildHTML(post) {
+            const date = new Date(post.date);
+            const dateStr = date.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+            const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
             
-            let html = `<div class="meta">${escapeHtml(parsed.dayPart)} · ${dateStr} à ${timeStr}</div>`;
-            if (parsed.structured) {
-                html += `<div class="headline">${escapeHtml(parsed.headline)}</div>`;
-                if (parsed.body) html += `<div class="body">${escapeHtml(parsed.body)}</div>`;
-                if (parsed.quote) html += `<div class="quote">"${escapeHtml(parsed.quote)}"</div>`;
-            } else {
-                html += `<div class="body" style="white-space:pre-wrap">${escapeHtml(parsed.body)}</div>`;
+            let html = '';
+            
+            if (post.imageHtml) {
+                html += post.imageHtml;
             }
-            html += `<div class="cta"><p>📱 Votre visite a déclenché la préparation de l'édition suivante.</p><p><a href="https://bsky.app/profile/${CONFIG.handle}" target="_blank" rel="noopener">Archives complètes sur Bluesky →</a></p></div>`;
+            
+            html += `<div class="meta">${escapeHtml(post.dayPart)} · ${dateStr} at ${timeStr}</div>`;
+            
+            if (post.structured) {
+                html += `<div class="headline">${escapeHtml(post.headline)}</div>`;
+                if (post.body) {
+                    html += `<div class="body">${post.facetsHtml || escapeHtml(post.body)}</div>`;
+                }
+                if (post.quote) html += `<div class="quote">"${escapeHtml(post.quote)}"</div>`;
+            } else {
+                html += `<div class="body" style="white-space:pre-wrap">${post.facetsHtml || escapeHtml(post.body)}</div>`;
+            }
+            
+            html += `<div class="cta"><p>📱 Your visit has triggered the preparation of the next edition.</p><p><a href="${post.url}" target="_blank" rel="noopener">Full archives on Bluesky →</a></p></div>`;
+            
             return html;
         }
 
-        function escapeHtml(text) {
-            if (!text) return '';
+        function escapeHtml(str) {
+            if (!str) return '';
             const div = document.createElement('div');
-            div.textContent = text;
+            div.textContent = str;
             return div.innerHTML;
         }
 
-        // EXÉCUTION AU CHARGEMENT
         window.onload = () => {
-            fetchLatestPost();   // Affiche le passé
-            triggerNextEdition(); // Prépare le futur
+            fetchLatestPost();
+            triggerNextEdition();
         };
     </script>
 </body>
